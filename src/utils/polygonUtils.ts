@@ -99,7 +99,7 @@ export const processPolygonTransaction = async (paymentDetails: PaymentRequest):
     // Prepare transaction parameters
     const transactionParameters = {
       from: accounts[0],
-      to: "0xYourPolygonContractOrWalletAddressHere", // Replace with actual receiving address
+      to: "0xe603C17b360c13Fee3094818c27288092C8601aD", // Replace with actual receiving address
       value: value,
       gasPrice: gasPrice,
       gas: "0x5208", // 21000 gas limit for standard transfer
