@@ -1,111 +1,147 @@
-
 import { PaymentRequest } from "@/types";
+import { addTransaction } from "./razorpayUtils";
+import { v4 as uuidv4 } from "uuid";
+import { updateCreditScoreFromTransaction } from "./creditScoreUtils";
 import { toast } from "sonner";
-import { v4 as uuidv4 } from 'uuid';
-import { addTransaction, updateUserBalance } from "./razorpayUtils";
-import { connectMetamask, switchNetwork } from "./metamaskUtils";
 
-// Constants for Polygon network
-const POLYGON_MAINNET_CHAIN_ID = "0x89";
-const POLYGON_TESTNET_CHAIN_ID = "0x13881"; // Mumbai testnet
+const POLYGON_CHAIN_ID = "0x89"; // Mainnet
+const MUMBAI_CHAIN_ID = "0x13881"; // Testnet
 
-export const processPolygonTransaction = async (paymentRequest: PaymentRequest): Promise<boolean> => {
+// Convert MATIC amount to Wei
+const toWei = (amount: number): string => {
+  // 1 MATIC = 10^18 Wei
+  const wei = amount * 1e18;
+  return '0x' + Math.floor(wei).toString(16);
+};
+
+// Switch to Polygon network
+const switchToPolygonNetwork = async () => {
+  if (!window.ethereum) {
+    throw new Error("MetaMask is not installed!");
+  }
+  
   try {
-    // Connect to MetaMask
-    const { account, chainId } = await connectMetamask();
-    
-    // Check if already on Polygon network (either mainnet or testnet)
-    if (chainId !== POLYGON_MAINNET_CHAIN_ID && chainId !== POLYGON_TESTNET_CHAIN_ID) {
-      // Try to switch to Polygon Mainnet
-      toast.info("Switching to Polygon network...");
-      await switchNetwork(POLYGON_MAINNET_CHAIN_ID);
-    }
-    
-    // Re-check the chain ID after switching
-    const currentChainId = await window.ethereum.request({ method: 'eth_chainId' });
-    
-    if (currentChainId !== POLYGON_MAINNET_CHAIN_ID && currentChainId !== POLYGON_TESTNET_CHAIN_ID) {
-      throw new Error("Failed to switch to Polygon network");
-    }
-    
-    // Estimate gas
-    const gasEstimate = await window.ethereum.request({
-      method: 'eth_estimateGas',
-      params: [{
-        from: account,
-        to: '0xPolygonRecipientAddressHere', // This would be the recipient's address
-        value: '0x' + paymentRequest.amount.toString(16) // Convert amount to hex
-      }]
+    // Get current chainId
+    const chainId = await window.ethereum.request({
+      method: "eth_chainId",
     });
+    
+    // If already on Polygon, return
+    if (chainId === POLYGON_CHAIN_ID || chainId === MUMBAI_CHAIN_ID) {
+      return;
+    }
+    
+    // Try to switch to Polygon
+    try {
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: MUMBAI_CHAIN_ID }], // Use testnet for safety
+      });
+    } catch (switchError: any) {
+      // This error code indicates that the chain has not been added to MetaMask
+      if (switchError.code === 4902) {
+        await window.ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [
+            {
+              chainId: MUMBAI_CHAIN_ID,
+              chainName: "Polygon Mumbai Testnet",
+              nativeCurrency: {
+                name: "MATIC",
+                symbol: "MATIC",
+                decimals: 18,
+              },
+              rpcUrls: ["https://rpc-mumbai.maticvigil.com"],
+              blockExplorerUrls: ["https://mumbai.polygonscan.com/"],
+            },
+          ],
+        });
+      } else {
+        throw switchError;
+      }
+    }
+  } catch (error) {
+    console.error("Error switching to Polygon network:", error);
+    throw error;
+  }
+};
+
+// Process payment using Polygon
+export const processPolygonTransaction = async (paymentDetails: PaymentRequest): Promise<boolean> => {
+  if (!window.ethereum) {
+    throw new Error("MetaMask is not installed!");
+  }
+  
+  try {
+    // Switch to Polygon network
+    await switchToPolygonNetwork();
+    
+    // Get accounts
+    const accounts = await window.ethereum.request({
+      method: "eth_requestAccounts",
+    }) as string[];
+    
+    if (!accounts || accounts.length === 0) {
+      throw new Error("No accounts found. Please connect to MetaMask.");
+    }
+    
+    // Get current gas price
+    const gasPrice = await window.ethereum.request({
+      method: "eth_gasPrice",
+    });
+    
+    // Convert amount to correct format (MATIC to Wei)
+    // For simplicity, we're assuming 1 MATIC = 50 INR
+    const maticAmount = paymentDetails.amount / 50;
+    const value = toWei(maticAmount);
+    
+    console.log(`Sending ${maticAmount} MATIC (${paymentDetails.amount} INR)`);
+    
+    // Prepare transaction parameters
+    const transactionParameters = {
+      from: accounts[0],
+      to: "0xYourPolygonContractOrWalletAddressHere", // Replace with actual receiving address
+      value: value,
+      gasPrice: gasPrice,
+      gas: "0x5208", // 21000 gas limit for standard transfer
+    };
     
     // Send transaction
-    const transactionHash = await window.ethereum.request({
-      method: 'eth_sendTransaction',
-      params: [{
-        from: account,
-        to: '0xPolygonRecipientAddressHere', // This would be the recipient's address
-        value: '0x' + paymentRequest.amount.toString(16), // Convert amount to hex
-        gas: gasEstimate,
-      }]
+    const txHash = await window.ethereum.request({
+      method: "eth_sendTransaction",
+      params: [transactionParameters],
     });
     
-    console.log(`Polygon transaction sent: ${transactionHash}`);
+    console.log("Transaction sent:", txHash);
     
-    // Create a local transaction record
+    // Add transaction to history
     const transaction = {
       id: uuidv4(),
       type: "debit" as const,
-      amount: paymentRequest.amount,
-      from: "You",
-      to: paymentRequest.to,
-      date: new Date(),
+      amount: paymentDetails.amount,
+      from: "You (via Polygon)",
+      to: paymentDetails.to,
+      description: paymentDetails.description,
       status: "completed" as const,
-      description: paymentRequest.description || "Payment via Polygon",
-      transactionHash
+      date: new Date(),
+      paymentId: txHash,
     };
     
     addTransaction(transaction);
     
-    // Update user balance
-    updateUserBalance(-paymentRequest.amount);
+    // Update credit score
+    updateCreditScoreFromTransaction(transaction);
     
-    toast.success("Polygon payment successful", {
-      description: `Transaction hash: ${transactionHash.substring(0, 10)}...`
+    toast.success("Payment successful", {
+      description: `Transaction hash: ${txHash.substring(0, 10)}...`,
     });
     
     return true;
-  } catch (error) {
-    console.error("Error processing Polygon payment:", error);
-    
-    toast.error("Polygon payment failed", {
-      description: error.message || "There was an error processing your payment"
+  } catch (error: any) {
+    console.error("Polygon payment error:", error);
+    toast.error("Payment failed", {
+      description: error.message || "There was an error processing your payment",
     });
-    
     return false;
-  }
-};
-
-export const getMaticBalance = async (address: string): Promise<string> => {
-  try {
-    // First ensure we're on a Polygon network
-    const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-    
-    if (chainId !== POLYGON_MAINNET_CHAIN_ID && chainId !== POLYGON_TESTNET_CHAIN_ID) {
-      // Not on Polygon network, return 0
-      return "0";
-    }
-    
-    const balance = await window.ethereum.request({
-      method: 'eth_getBalance',
-      params: [address, 'latest']
-    });
-    
-    // Convert balance from wei to MATIC (1 MATIC = 10^18 wei)
-    const maticValue = parseInt(balance, 16) / 1e18;
-    
-    return maticValue.toFixed(4);
-  } catch (error) {
-    console.error("Error getting MATIC balance:", error);
-    return "0";
   }
 };

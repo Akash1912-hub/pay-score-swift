@@ -1,15 +1,27 @@
-
-export interface UserProfile {
+export interface Transaction {
   id: string;
-  name: string;
-  email: string;
-  phone?: string;
-  avatar?: string;
-  balance: number;
-  walletAddress?: string;
-  chainId?: string;
-  creditScore: CreditScoreData;
-  recentTransactions: Transaction[];
+  type: "credit" | "debit";
+  amount: number;
+  from: string;
+  to: string;
+  description: string;
+  status: "pending" | "completed" | "failed";
+  date: Date;
+  paymentId?: string;
+  category?: string;
+  productDetails?: {
+    type: string;
+    name: string;
+    interestRate?: string;
+    term?: string;
+    provider?: string;
+  };
+}
+
+export interface PaymentRequest {
+  to: string;
+  amount: number;
+  description: string;
 }
 
 export interface CreditScoreData {
@@ -33,40 +45,15 @@ export interface CreditScoreData {
   };
 }
 
-export interface Transaction {
+export interface UserProfile {
   id: string;
-  type: "credit" | "debit";
-  amount: number;
-  from: string;
-  to: string;
-  date: Date;
-  status: "pending" | "completed" | "failed";
-  description: string;
-  transactionId?: string;
-  transactionHash?: string;
-  category?: string;
-  productDetails?: {
-    type: string;
-    name: string;
-    interestRate?: string;
-    term?: string;
-    provider?: string;
-  };
-}
-
-export interface PaymentRequest {
-  amount: number;
-  to: string;
-  description?: string;
-  currency?: string;
-  metadata?: Record<string, any>;
-}
-
-// Extend the global Window interface to include ethereum for TypeScript
-declare global {
-  interface Window {
-    ethereum?: any;
-    google?: any;
-    Razorpay?: any;
-  }
+  name: string;
+  email: string;
+  phone?: string;
+  avatar?: string;
+  balance: number;
+  creditScore: CreditScoreData;
+  walletAddress?: string;
+  chainId?: string;
+  recentTransactions: Transaction[];
 }

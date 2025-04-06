@@ -1,4 +1,3 @@
-
 import { Button } from "@/components/ui/button";
 import TransactionHistory from "@/components/TransactionHistory";
 import { useNavigate } from "react-router-dom";

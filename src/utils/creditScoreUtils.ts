@@ -1,312 +1,127 @@
 import { CreditScoreData, Transaction } from "@/types";
+import { v4 as uuidv4 } from "uuid";
 
-// --- Initial Credit Score ---
-const initialCreditScore: CreditScoreData = {
-  score: 750,
-  maxScore: 900,
-  lastUpdated: new Date(),
-  paymentHistory: {
-    onTimePayments: 45,
-    latePayments: 2,
-    missedPayments: 0,
-  },
-  creditUtilization: 15,
-  factors: {
-    positive: [
-      "Regular on-time payments",
-      "Low credit utilization",
-      "Long credit history",
-    ],
-    negative: ["Recent credit inquiries"],
-  },
-  loanInformation: {
-    activeLoans: 0,
-    totalLoanAmount: 0,
-    onTimeLoanPayments: 0
-  }
-};
+// Initialize mock credit score data if not already present
+export const initializeCreditScoreData = (): CreditScoreData => {
+  const defaultCreditScore: CreditScoreData = {
+    score: 750,
+    maxScore: 900,
+    lastUpdated: new Date(),
+    paymentHistory: {
+      onTimePayments: 24,
+      latePayments: 1,
+      missedPayments: 0,
+    },
+    creditUtilization: 30,
+    factors: {
+      positive: [
+        "Long credit history",
+        "Regular on-time payments",
+        "Diverse credit mix"
+      ],
+      negative: [
+        "High credit utilization"
+      ],
+    },
+    loanInformation: {
+      activeLoans: 1,
+      totalLoanAmount: 120000,
+      onTimeLoanPayments: 24,
+    },
+  };
 
-// Initialize credit score in localStorage if not already set
-const initializeLocalStorage = () => {
   if (!localStorage.getItem("creditScore")) {
-    localStorage.setItem("creditScore", JSON.stringify(initialCreditScore));
+    localStorage.setItem("creditScore", JSON.stringify(defaultCreditScore));
   }
-  if (!localStorage.getItem("transactions")) {
-    localStorage.setItem("transactions", JSON.stringify([]));
-  }
+
+  return getCreditScore();
 };
 
-// --- Get Credit Score ---
+// Get credit score data
 export const getCreditScore = (): CreditScoreData => {
-  // Initialize localStorage if needed
-  initializeLocalStorage();
-  
-  const savedData = localStorage.getItem("creditScore");
-  if (savedData) {
-    try {
-      const parsed = JSON.parse(savedData);
-      parsed.lastUpdated = new Date(parsed.lastUpdated);
-      // Ensure loanInformation exists (for backward compatibility)
-      if (!parsed.loanInformation) {
-        parsed.loanInformation = {
-          activeLoans: 0,
-          totalLoanAmount: 0,
-          onTimeLoanPayments: 0
-        };
-      }
-      return parsed;
-    } catch (error) {
-      console.error("Error parsing credit score data:", error);
-      return initialCreditScore;
-    }
-  }
-  return initialCreditScore;
+  const creditScore = localStorage.getItem("creditScore");
+  return creditScore ? JSON.parse(creditScore) : initializeCreditScoreData();
 };
 
-export const saveCreditScore = (creditScore: CreditScoreData): void => {
-  localStorage.setItem("creditScore", JSON.stringify(creditScore));
-};
-
-// --- Get and Save Transactions ---
-export const getTransactions = (): Transaction[] => {
-  const saved = localStorage.getItem("transactions");
-  if (saved) {
-    try {
-      const parsed = JSON.parse(saved);
-      // Ensure proper Date objects for all transactions
-      return parsed.map((t: any) => ({
-        ...t,
-        date: new Date(t.date)
-      }));
-    } catch (error) {
-      console.error("Error parsing transactions:", error);
-      return [];
-    }
-  }
-  return [];
-};
-
-export const saveTransactions = (transactions: Transaction[]): void => {
-  localStorage.setItem("transactions", JSON.stringify(transactions));
-};
-
-// --- Credit Score Logic ---
-export const calculateCreditScore = (
-  transaction: Transaction,
-  currentScore: CreditScoreData
-): CreditScoreData => {
-  const newScore = JSON.parse(JSON.stringify(currentScore)) as CreditScoreData;
-  newScore.lastUpdated = new Date();
-
-  // Only completed transactions affect the score
-  if (transaction.status === "completed") {
-    // Check if this is a loan transaction
-    const isLoanTransaction = transaction.description.toLowerCase().includes("loan");
-    
-    // Loan disbursement - increases credit utilization but decreases score slightly
-    if (isLoanTransaction && transaction.type === "credit") {
-      // Update loan information
-      newScore.loanInformation.activeLoans += 1;
-      newScore.loanInformation.totalLoanAmount += transaction.amount;
-      
-      // Increase credit utilization
-      const utilizationIncrease = Math.min(10, transaction.amount / 20000);
-      newScore.creditUtilization = Math.min(100, 
-        parseFloat((newScore.creditUtilization + utilizationIncrease).toFixed(1))
-      );
-      
-      // Small decrease in score for new loan
-      const scoreDecrease = Math.min(5, transaction.amount / 50000);
-      newScore.score = Math.max(300, newScore.score - scoreDecrease);
-      
-      // Add factor if not already there
-      if (!newScore.factors.negative.includes("Outstanding loans")) {
-        newScore.factors.negative.push("Outstanding loans");
-      }
-    }
-    
-    // Loan repayment - positive impact
-    else if (isLoanTransaction && transaction.type === "debit") {
-      // Update loan repayment history
-      newScore.loanInformation.onTimeLoanPayments += 1;
-      
-      // Decrease total loan amount
-      newScore.loanInformation.totalLoanAmount = Math.max(0, 
-        newScore.loanInformation.totalLoanAmount - transaction.amount
-      );
-      
-      // Check if loan is fully paid
-      if (newScore.loanInformation.totalLoanAmount === 0) {
-        newScore.loanInformation.activeLoans = Math.max(0, newScore.loanInformation.activeLoans - 1);
-      }
-      
-      // Positive score impact for repayment
-      const scoreIncrease = Math.min(8, Math.max(2, transaction.amount / 10000));
-      newScore.score = Math.min(newScore.maxScore, newScore.score + scoreIncrease);
-      
-      // Add positive factor if not already there
-      if (!newScore.factors.positive.includes("Regular loan payments")) {
-        newScore.factors.positive.push("Regular loan payments");
-      }
-      
-      // Remove negative factor if no active loans
-      if (newScore.loanInformation.activeLoans === 0) {
-        const loanIndex = newScore.factors.negative.indexOf("Outstanding loans");
-        if (loanIndex > -1) {
-          newScore.factors.negative.splice(loanIndex, 1);
-        }
-      }
-      
-      // Decrease credit utilization
-      const utilizationDecrease = Math.min(5, transaction.amount / 20000);
-      newScore.creditUtilization = Math.max(0, 
-        parseFloat((newScore.creditUtilization - utilizationDecrease).toFixed(1))
-      );
-    }
-    
-    // Regular payment behavior - debit transactions (payments made)
-    else if (transaction.type === "debit") {
-      newScore.paymentHistory.onTimePayments += 1;
-      // Increase score for on-time payments (between 1-5 points based on amount)
-      const scoreIncrease = Math.min(Math.max(1, Math.floor(transaction.amount / 500)), 5);
-      newScore.score = Math.min(newScore.score + scoreIncrease, newScore.maxScore);
-      
-      // Add positive factor if not already there
-      if (!newScore.factors.positive.includes("Regular on-time payments")) {
-        newScore.factors.positive.push("Regular on-time payments");
-      }
-      
-      // Remove negative factor if exists
-      const missedIndex = newScore.factors.negative.indexOf("Missed payments");
-      if (missedIndex > -1) {
-        newScore.factors.negative.splice(missedIndex, 1);
-      }
-      
-      // Adjust credit utilization (simulated)
-      const utilizationChange = (Math.random() * 2 - 1) * (transaction.amount / 5000);
-      newScore.creditUtilization = Math.max(0, Math.min(100, 
-        parseFloat((newScore.creditUtilization + utilizationChange).toFixed(1))
-      ));
-    }
-    
-    // Receiving money (credit transactions)
-    else if (transaction.type === "credit") {
-      // Small positive impact for receiving payments
-      const smallIncrease = Math.min(1, transaction.amount / 2000);
-      newScore.score = Math.min(newScore.score + smallIncrease, newScore.maxScore);
-      
-      // Slightly decrease credit utilization when receiving money
-      newScore.creditUtilization = Math.max(0, 
-        parseFloat((newScore.creditUtilization - 0.2).toFixed(1))
-      );
-    }
-    
-    // Add positive factors based on behavior patterns
-    const allTransactions = getTransactions();
-    const recentTransactions = allTransactions.filter(t => {
-      const txnDate = new Date(t.date);
-      const oneMonthAgo = new Date();
-      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-      return txnDate > oneMonthAgo;
-    });
-    
-    // Active account with regular transactions
-    if (recentTransactions.length >= 5) {
-      if (!newScore.factors.positive.includes("Active financial account")) {
-        newScore.factors.positive.push("Active financial account");
-      }
-    }
-    
-    // Low credit utilization is good
-    if (newScore.creditUtilization < 30) {
-      if (!newScore.factors.positive.includes("Low credit utilization")) {
-        newScore.factors.positive.push("Low credit utilization");
-      }
-      
-      const highUtilIndex = newScore.factors.negative.indexOf("High credit utilization");
-      if (highUtilIndex > -1) {
-        newScore.factors.negative.splice(highUtilIndex, 1);
-      }
-    } else if (newScore.creditUtilization > 50) {
-      // High utilization is bad
-      if (!newScore.factors.negative.includes("High credit utilization")) {
-        newScore.factors.negative.push("High credit utilization");
-      }
-      
-      const lowUtilIndex = newScore.factors.positive.indexOf("Low credit utilization");
-      if (lowUtilIndex > -1) {
-        newScore.factors.positive.splice(lowUtilIndex, 1);
-      }
-    }
-  } else if (transaction.status === "failed") {
-    // Failed payments can have a small negative impact
-    newScore.score = Math.max(newScore.score - 1, 300); // Prevent going below 300
-    
-    // Add a negative factor if multiple failed transactions
-    const failedTransactions = getTransactions().filter(t => t.status === "failed").length;
-    if (failedTransactions >= 3) {
-      if (!newScore.factors.negative.includes("Multiple failed transactions")) {
-        newScore.factors.negative.push("Multiple failed transactions");
-      }
-    }
-  }
-
-  return newScore;
-};
-
-// --- Update Score and Store Transaction ---
-export const updateCreditScoreWithTransaction = (
-  transaction: Transaction
-): CreditScoreData => {
+// Update credit score
+export const updateCreditScore = (updates: Partial<CreditScoreData>): CreditScoreData => {
   const currentScore = getCreditScore();
-  const allTransactions = getTransactions();
+  const updatedScore: CreditScoreData = {
+    ...currentScore,
+    ...updates,
+    lastUpdated: new Date(),
+  };
   
-  // Add the new transaction to the list
-  const updatedTransactions = [transaction, ...allTransactions];
+  localStorage.setItem("creditScore", JSON.stringify(updatedScore));
   
-  // Calculate the new credit score based on the transaction
-  const updatedScore = calculateCreditScore(transaction, currentScore);
-
-  // Save the updated credit score and transactions
-  saveCreditScore(updatedScore);
-  saveTransactions(updatedTransactions);
-
-  // Return the updated score
+  // Dispatch storage event to notify other components
+  window.dispatchEvent(new StorageEvent("storage", {
+    key: "creditScore",
+    newValue: JSON.stringify(updatedScore),
+  }));
+  
   return updatedScore;
 };
 
-// Initialize credit score if not present
-export const initializeCreditScore = (): void => {
-  if (!localStorage.getItem("creditScore")) {
-    saveCreditScore(initialCreditScore);
-  }
-  if (!localStorage.getItem("transactions")) {
-    localStorage.setItem("transactions", JSON.stringify([]));
-  }
+// Get transactions from localStorage
+export const getTransactions = (): Transaction[] => {
+  const transactions = localStorage.getItem("transactions");
+  return transactions ? JSON.parse(transactions) : [];
 };
 
-// Estimate score impact for different transaction types
-export const estimateScoreImpact = (transactionType: string, amount: number): { impact: number; description: string } => {
-  switch (transactionType) {
-    case "payment":
-      return {
-        impact: Math.min(Math.max(1, Math.floor(amount / 500)), 5),
-        description: "On-time payment"
-      };
-    case "loan_disbursement":
-      return {
-        impact: -Math.min(5, amount / 50000),
-        description: "New loan"
-      };
-    case "loan_repayment":
-      return {
-        impact: Math.min(8, Math.max(2, amount / 10000)),
-        description: "Loan repayment"
-      };
-    default:
-      return {
-        impact: 0,
-        description: "No impact"
-      };
+// Calculate credit score impact based on transaction
+export const calculateCreditScoreImpact = (transaction: Transaction): number => {
+  // This is a simplified model - in reality, credit score calculation is complex
+  
+  // Payment history has the biggest impact on credit score
+  if (transaction.type === "debit") {
+    // Transaction amount relative to balance can affect credit utilization
+    const balance = parseFloat(localStorage.getItem("userBalance") || "0");
+    const utilizationImpact = balance > 0 ? (transaction.amount / balance) * 10 : 0;
+    
+    // If it's a bill payment or loan payment, it positively affects score
+    if (
+      transaction.description.toLowerCase().includes("bill") ||
+      transaction.description.toLowerCase().includes("payment") ||
+      transaction.description.toLowerCase().includes("loan") ||
+      transaction.description.toLowerCase().includes("emi")
+    ) {
+      return 2 + Math.min(utilizationImpact, 3); // Max +5 points
+    }
+    
+    // Regular spending slightly affects score
+    return 1;
+  }
+  
+  // Credit transactions (income) don't directly impact credit score
+  return 0;
+};
+
+// Update credit score based on transaction
+export const updateCreditScoreFromTransaction = (transaction: Transaction): void => {
+  const impact = calculateCreditScoreImpact(transaction);
+  
+  if (impact > 0) {
+    const currentScore = getCreditScore();
+    let newScore = currentScore.score + impact;
+    
+    // Cap at max score
+    newScore = Math.min(newScore, currentScore.maxScore);
+    
+    // Update payment history if it's a bill payment
+    let updatedPaymentHistory = { ...currentScore.paymentHistory };
+    if (
+      transaction.type === "debit" && 
+      (transaction.description.toLowerCase().includes("bill") || 
+       transaction.description.toLowerCase().includes("payment"))
+    ) {
+      updatedPaymentHistory.onTimePayments += 1;
+    }
+    
+    // Update credit score
+    updateCreditScore({
+      score: newScore,
+      paymentHistory: updatedPaymentHistory,
+    });
   }
 };

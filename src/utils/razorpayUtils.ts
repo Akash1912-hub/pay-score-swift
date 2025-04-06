@@ -1,67 +1,51 @@
-import { Transaction, PaymentRequest } from "@/types";
-import { v4 as uuidv4 } from 'uuid';
+import { UserProfile, PaymentRequest, Transaction } from "@/types";
+import { v4 as uuidv4 } from "uuid";
 import { toast } from "sonner";
+import { updateCreditScoreFromTransaction } from "./creditScoreUtils";
 
-// Helper function to initialize mock user data
+// Backend API URL - the direct URL without additional paths
+const BACKEND_URL = "https://pay-score-swift-2.onrender.com";
+
+// Initialize mock user data if not already present
 export const initializeUserData = () => {
-  // Initialize transactions if not present
+  // If transactions don't exist, create them
   if (!localStorage.getItem("transactions")) {
-    const mockTransactions = [
-      {
-        id: uuidv4(),
-        type: "credit",
-        amount: 2500,
-        from: "Salary",
-        to: "Your Account",
-        date: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000), // 15 days ago
-        status: "completed",
-        description: "Monthly Salary"
-      },
+    const defaultTransactions: Transaction[] = [
       {
         id: uuidv4(),
         type: "debit",
-        amount: 650,
-        from: "Your Account",
-        to: "Electricity Bill",
-        date: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000), // 10 days ago
+        amount: 299,
+        from: "You",
+        to: "Netflix Subscription",
+        description: "Monthly subscription",
         status: "completed",
-        description: "Monthly Bill Payment"
-      },
-      {
-        id: uuidv4(),
-        type: "credit",
-        amount: 1200,
-        from: "Client Payment",
-        to: "Your Account",
-        date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
-        status: "completed",
-        description: "Freelance Work"
-      },
-      {
-        id: uuidv4(),
-        type: "debit",
-        amount: 800,
-        from: "Your Account",
-        to: "Grocery Store",
         date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
+      },
+      {
+        id: uuidv4(),
+        type: "credit",
+        amount: 5000,
+        from: "Bank Transfer",
+        to: "You",
+        description: "Salary deposit",
         status: "completed",
-        description: "Weekly Groceries"
+        date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days ago
       },
       {
         id: uuidv4(),
         type: "debit",
-        amount: 120,
-        from: "Your Account",
-        to: "Coffee Shop",
-        date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
+        amount: 450,
+        from: "You",
+        to: "Electric Bill",
+        description: "Monthly utility payment",
         status: "completed",
-        description: "Coffee with Friends"
-      }
+        date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
+      },
     ];
-    localStorage.setItem("transactions", JSON.stringify(mockTransactions));
+    localStorage.setItem("transactions", JSON.stringify(defaultTransactions));
   }
-  
-  // Initialize user balance if not present
+
+  // If balance doesn't exist, set it
   if (!localStorage.getItem("userBalance")) {
     localStorage.setItem("userBalance", "5000");
   }
@@ -73,144 +57,180 @@ export const getTransactions = (): Transaction[] => {
   return transactions ? JSON.parse(transactions) : [];
 };
 
-// Add a new transaction
-export const addTransaction = (transaction: Transaction) => {
+// Add a transaction
+export const addTransaction = (transaction: Transaction): void => {
   const transactions = getTransactions();
-  transactions.unshift(transaction); // Add to beginning of array
+  transactions.unshift(transaction);
   localStorage.setItem("transactions", JSON.stringify(transactions));
   
-  // Trigger storage event for other tabs/components
-  window.dispatchEvent(new Event("storage"));
-};
-
-// Update user balance
-export const updateUserBalance = (amount: number) => {
+  // Update balance
   const currentBalance = parseFloat(localStorage.getItem("userBalance") || "0");
-  const newBalance = currentBalance + amount;
+  const newBalance = transaction.type === "credit"
+    ? currentBalance + transaction.amount
+    : currentBalance - transaction.amount;
   localStorage.setItem("userBalance", newBalance.toString());
   
-  // Update user object if it exists
-  const userJson = localStorage.getItem("user");
-  if (userJson) {
-    try {
-      const user = JSON.parse(userJson);
-      user.balance = newBalance;
-      localStorage.setItem("user", JSON.stringify(user));
-    } catch (error) {
-      console.error("Error updating user balance:", error);
-    }
-  }
+  // Fire storage event to notify other components
+  window.dispatchEvent(new StorageEvent("storage", {
+    key: "transactions",
+    newValue: JSON.stringify(transactions),
+  }));
   
-  // Trigger storage event for other tabs/components
-  window.dispatchEvent(new Event("storage"));
+  window.dispatchEvent(new StorageEvent("storage", {
+    key: "userBalance",
+    newValue: newBalance.toString(),
+  }));
 };
 
-// Process payment with Razorpay
+// Process payment using Razorpay
 export const processPayment = async (paymentDetails: PaymentRequest): Promise<boolean> => {
-  return new Promise((resolve, reject) => {
-    try {
-      console.log("Processing payment with Razorpay", paymentDetails);
-      
-      if (!(window as any).Razorpay) {
-        console.error("Razorpay SDK not loaded");
-        
-        // Dynamically load Razorpay script
-        const script = document.createElement("script");
-        script.src = "https://checkout.razorpay.com/v1/checkout.js";
-        script.async = true;
-        
-        script.onload = () => {
-          console.log("Razorpay script loaded successfully");
-          initializeRazorpay(paymentDetails, resolve, reject);
-        };
-        
-        script.onerror = () => {
-          console.error("Failed to load Razorpay script");
-          reject(new Error("Failed to load Razorpay SDK"));
-        };
-        
-        document.body.appendChild(script);
-      } else {
-        console.log("Razorpay SDK already loaded");
-        initializeRazorpay(paymentDetails, resolve, reject);
-      }
-    } catch (error) {
-      console.error("Error processing payment:", error);
-      reject(error);
-    }
-  });
-};
-
-// Helper function to initialize Razorpay checkout
-const initializeRazorpay = (
-  paymentDetails: PaymentRequest,
-  resolve: (value: boolean) => void,
-  reject: (reason?: any) => void
-) => {
   try {
-    const RazorpayCheckout = (window as any).Razorpay;
+    console.log("Starting payment process with details:", paymentDetails);
     
-    if (!RazorpayCheckout) {
-      throw new Error("Razorpay SDK not available");
+    let orderData;
+    let backendOrderCreated = false;
+    
+    try {
+      // Step 1: Try to create an order on your backend
+      console.log("Attempting to create order on backend:", `${BACKEND_URL}/create-order`);
+      const orderResponse = await fetch(`${BACKEND_URL}/create-order`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          amount: paymentDetails.amount,
+          currency: "INR",
+          receipt: `receipt_${uuidv4().substring(0, 8)}`,
+        }),
+      });
+      
+      if (!orderResponse.ok) {
+        throw new Error(`Failed to create order: ${orderResponse.status} ${orderResponse.statusText}`);
+      }
+      
+      orderData = await orderResponse.json();
+      console.log("Order created successfully:", orderData);
+      backendOrderCreated = true;
+    } catch (error) {
+      console.warn("Backend order creation failed, proceeding with direct payment:", error);
+      // Continue with direct payment without backend order
+      orderData = { 
+        id: `local_order_${uuidv4()}`,
+        amount: paymentDetails.amount * 100 
+      };
     }
     
-    const options = {
-      key: "rzp_test_QCsADCKZO5Qzs2", // Test key
-      amount: paymentDetails.amount * 100, // Amount in paise
-      currency: "INR",
-      name: "TransPay",
-      description: paymentDetails.description || "Payment",
-      image: "https://i.ibb.co/YDYS80K/shield.png",
-      handler: function (response: any) {
-        console.log("Payment successful", response);
-        
-        // Create transaction record
-        const transaction = {
-          id: uuidv4(),
-          type: "debit" as const,
-          amount: paymentDetails.amount,
-          from: "You",
-          to: paymentDetails.to,
-          date: new Date(),
-          status: "completed" as const,
-          description: paymentDetails.description || "Razorpay Payment",
-          transactionId: response.razorpay_payment_id
-        };
-        
-        // Add transaction to history
-        addTransaction(transaction);
-        
-        // Update user balance
-        updateUserBalance(-paymentDetails.amount);
-        
-        toast.success("Payment successful", {
-          description: `Payment ID: ${response.razorpay_payment_id}`
+    // Step 2: Initialize Razorpay payment
+    return new Promise((resolve, reject) => {
+      if (!window.Razorpay) {
+        console.error("Razorpay is not available");
+        toast.error("Payment gateway unavailable", {
+          description: "Please try again later"
         });
-        
-        resolve(true);
-      },
-      prefill: {
-        name: "TransPay User",
-        email: "user@example.com",
-        contact: "9999999999"
-      },
-      theme: {
-        color: "#3B82F6"
-      },
-      modal: {
-        ondismiss: function() {
-          console.log("Payment cancelled");
-          
-          toast.info("Payment cancelled");
-          resolve(false);
-        }
+        reject(new Error("Razorpay is not available"));
+        return;
       }
-    };
-    
-    const razorpay = new RazorpayCheckout(options);
-    razorpay.open();
+      
+      console.log("Initializing Razorpay with options");
+      const options = {
+        key: "rzp_test_eDVMj23yL98Hvt", // Your Razorpay key
+        amount: paymentDetails.amount * 100, // amount in smallest currency unit
+        currency: "INR",
+        name: "TransPay",
+        description: paymentDetails.description,
+        order_id: backendOrderCreated ? orderData.id : undefined, // Only use if backend created order
+        handler: function (response: any) {
+          console.log("Payment successful:", response);
+          
+          // If backend order was created, verify payment
+          if (backendOrderCreated) {
+            try {
+              fetch(`${BACKEND_URL}/verify-payment`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_signature: response.razorpay_signature,
+                }),
+              })
+                .then(verifyResponse => verifyResponse.json())
+                .then(verifyData => {
+                  if (verifyData.verified) {
+                    console.log("Payment verified successfully");
+                    handleSuccessfulPayment(response.razorpay_payment_id);
+                  } else {
+                    console.error("Payment verification failed");
+                    reject(new Error("Payment verification failed"));
+                  }
+                })
+                .catch(error => {
+                  console.error("Error verifying payment:", error);
+                  // Still consider payment successful if verification fails
+                  handleSuccessfulPayment(response.razorpay_payment_id);
+                });
+            } catch (error) {
+              console.error("Error in verification process:", error);
+              // Still consider payment successful
+              handleSuccessfulPayment(response.razorpay_payment_id);
+            }
+          } else {
+            // No backend order, just proceed with successful payment
+            handleSuccessfulPayment(response.razorpay_payment_id || `local_${uuidv4()}`);
+          }
+          
+          function handleSuccessfulPayment(paymentId: string) {
+            // Add transaction
+            const transaction: Transaction = {
+              id: uuidv4(),
+              type: "debit",
+              amount: paymentDetails.amount,
+              from: "You",
+              to: paymentDetails.to,
+              description: paymentDetails.description,
+              status: "completed",
+              date: new Date(),
+              paymentId: paymentId,
+            };
+            
+            addTransaction(transaction);
+            updateCreditScoreFromTransaction(transaction);
+            resolve(true);
+          }
+        },
+        prefill: {
+          name: "User",
+          email: "user@example.com",
+          contact: "9999999999",
+        },
+        theme: {
+          color: "#3B82F6",
+        },
+        modal: {
+          ondismiss: function() {
+            console.log("Payment cancelled by user");
+            reject(new Error("Payment cancelled"));
+          }
+        }
+      };
+      
+      try {
+        console.log("Creating and opening Razorpay instance");
+        const razorpay = new window.Razorpay(options);
+        razorpay.open();
+      } catch (error) {
+        console.error("Error opening Razorpay:", error);
+        reject(error);
+      }
+    });
   } catch (error) {
-    console.error("Error initializing Razorpay:", error);
-    reject(error);
+    console.error("Error processing payment:", error);
+    toast.error("Payment failed", {
+      description: error.message || "There was an error processing your payment",
+    });
+    return false;
   }
 };

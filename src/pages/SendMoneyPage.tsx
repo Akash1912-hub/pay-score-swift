@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +12,7 @@ import { Form, FormControl, FormField, FormItem } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { processPayment } from "../utils/razorpayUtils"; // Import Razorpay utility
 
 interface Contact {
   name: string;
@@ -97,7 +97,7 @@ const SendMoneyPage = () => {
     setFilteredContacts(filtered);
   };
 
-  const handleCreateCustomPayment = (values: PaymentFormValues) => {
+  const handleCreateCustomPayment = async (values: PaymentFormValues) => {
     const newContact = {
       name: values.name,
       amount: values.amount
@@ -107,6 +107,23 @@ const SendMoneyPage = () => {
     setIsPaymentModalOpen(true);
     setShowCustomPayment(false);
     paymentForm.reset();
+
+    // Process the custom payment via Razorpay
+    try {
+      const paymentSuccessful = await processPayment({
+        amount: values.amount,
+        to: newContact.name,
+        description: `Money transfer to ${newContact.name}`,
+      });
+
+      if (paymentSuccessful) {
+        toast.success("Payment successful!");
+      } else {
+        toast.error("Payment failed.");
+      }
+    } catch (error) {
+      toast.error("Error processing payment.");
+    }
   };
 
   return (
@@ -242,8 +259,7 @@ const SendMoneyPage = () => {
       <Button 
         variant="outline" 
         className="w-full mt-4" 
-        onClick={() => navigate("/")}
-      >
+        onClick={() => navigate("/")}>
         Back to Home
       </Button>
 

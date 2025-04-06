@@ -12,7 +12,7 @@ import {
   TableRow,
   TableCell 
 } from "@/components/ui/table";
-import { getTransactions, initializeCreditScore } from "../utils/creditScoreUtils";
+import { getTransactions, initializeCreditScoreData } from "../utils/creditScoreUtils";
 import { Transaction } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -27,7 +27,7 @@ const CreditScorePage = () => {
 
   useEffect(() => {
     // Initialize credit score data if needed
-    initializeCreditScore();
+    initializeCreditScoreData();
     
     try {
       const savedTransactions = getTransactions();
