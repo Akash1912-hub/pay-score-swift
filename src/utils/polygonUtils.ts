@@ -5,7 +5,7 @@ import { updateCreditScoreFromTransaction } from "./creditScoreUtils";
 import { toast } from "sonner";
 
 const POLYGON_CHAIN_ID = "0x89"; // Mainnet
-const MUMBAI_CHAIN_ID = "0x13881"; // Testnet
+const MUMBAI_CHAIN_ID = "0x13882"; // Testnet
 
 // Convert MATIC amount to Wei
 const toWei = (amount: number): string => {
@@ -51,8 +51,7 @@ const switchToPolygonNetwork = async () => {
                 symbol: "MATIC",
                 decimals: 18,
               },
-              rpcUrls: ["https://rpc-mumbai.maticvigil.com"],
-              blockExplorerUrls: ["https://mumbai.polygonscan.com/"],
+              rpcUrls: ["https://rpc-amoy.polygon.technology/ "],
             },
           ],
         });
