@@ -81,7 +81,7 @@ export const processMetaMaskPayment = async (paymentDetails: PaymentRequest): Pr
     // Prepare transaction parameters
     const transactionParameters = {
       from: account,
-      to: '0xYourContractOrWalletAddressHere', // Replace with actual receiving address
+      to: '0xe603C17b360c13Fee3094818c27288092C8601aD', // Replace with actual receiving address
       value: value,
       gasPrice: gasPrice,
       gas: '0x5208', // 21000 gas limit for standard ETH transfer
